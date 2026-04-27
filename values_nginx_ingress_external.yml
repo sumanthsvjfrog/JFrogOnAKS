@@ -1,0 +1,405 @@
+# Special values for jfrog-platform chart.
+# nameOverride:
+# fullnameOverride:
+# If this is an upgrade over an existing platform chart(>= 10.0.0), explicitly pass 'gaUpgradeReady=true' to upgrade
+gaUpgradeReady: true
+# If you are upgrading from a chart version(< 10.18.x) that has postgresql.image.tag of 13.x, make sure to set the current postgresql.image.tag to the same tag and databaseUpgradeReady=true.
+# If you are upgrading from a chart version (>= 10.18.x), just set databaseUpgradeReady=true.
+databaseUpgradeReady: false
+preUpgradeHook:
+  enabled: true
+global:
+  imageRegistry: "acrregistry"
+  #imagePullSecrets:
+   # - jfrog-registry-secret
+  jfrogUrl: "https://your.domain.com"
+  joinKeySecretName: jfrog-join-keys-dev
+  masterKeySecretName: jfrog-master-keys-dev
+  versions:
+    artifactory: "7.146.7"
+    xray: "3.137.27"
+    nginx: "7.146.7"
+  database:
+    initDBCreation: false
+  xray:
+    rabbitmq:
+       replicaCount: 1
+       haQuorum:
+         enabled: true
+       migrateMessagesFromXrayDefaultVhost: true
+  customCertificates:
+    enabled: true
+    certificateSecretName: "artifactory-tls"
+
+postgresql:
+  enabled: false
+
+rabbitmq:
+  image:
+    tag: 4.1.1-debian-12-r1
+  replicaCount: 1
+  podManagementPolicy: Parallel
+  extraPlugins: "rabbitmq_shovel rabbitmq_shovel_management"
+  migration:
+    deleteStatefulSetToAllowFieldUpdate:
+      enabled: true
+    removeHaPolicyOnMigrationToHaQuorum:
+      enabled: true
+  tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "rabbitmq"
+    effect: "NoSchedule"
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-pool
+              operator: In
+              values:
+                - rabbitmq
+
+artifactory:
+  enabled: true
+  database:
+    type: postgresql
+    driver: org.postgresql.Driver
+    secrets:
+      user:
+        name: "artifactory-db-secret"
+        key: "db-user"
+      password:
+        name: "artifactory-db-secret"
+        key: "db-password"
+      url:
+        name: "artifactory-db-secret"
+        key: "db-url"
+
+  mc:
+    enabled: true
+
+  ## Azure Workload Identity: annotate the Artifactory ServiceAccount with your UAMI client ID.
+  serviceAccount:
+    create: true
+    name: "artifactory-sa"
+    automountServiceAccountToken: true
+    annotations:
+      azure.workload.identity/client-id: 84a1c4cb-3bfa-43c7-a3a7-426d0a173b36
+  ingress:
+    enabled: true
+    defaultBackend:
+      enabled: true
+    routerPath: /
+    artifactoryPath: /artifactory/
+    className: nginx
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    hosts:
+      - your.domain.com
+    tls:
+      - secretName: artifactory-tls
+        hosts:
+          - your.domain.com
+
+  artifactory:
+    labels:
+      azure.workload.identity/use: "true"
+    tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "artifactory"
+      effect: "NoSchedule"
+    replicaCount: 2
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: artifactory
+                release: jfrog-platform
+            topologyKey: kubernetes.io/hostname
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: node-pool
+              operator: In
+              values: ["artifactory"]
+
+    ## Azure Key Vault CSI Driver - mounts KV secrets and syncs to K8s secrets
+    ## SecretProviderClass 'jfrog-db-secrets' must be applied before helm install
+
+
+    persistence:
+      enabled: true
+      size: 480Gi
+      ## Azure Blob Storage V2 direct (replaces AWS S3 s3-storage-v3-direct)
+      ## Ref: https://docs.jfrog.com/installation/docs/azure-blob-storage-v2-binary-provider
+      type: azure-blob-storage-v2-direct
+      maxCacheSize: 200000000000
+      azureBlob:
+        ## useInstanceCredentials: true = no accountKey, uses UAMI via Workload Identity
+        ## UAMI needs Storage Blob Data Contributor on the storage account. Artifactory 7.125.4+
+        ## Ref: https://docs.jfrog.com/installation/docs/azure-workload-identity
+        useInstanceCredentials: true
+        endpoint: "https://changeit.blob.core.windows.net/"
+        containerName: artifactory-binstore
+        testConnection: false
+        multiPartLimit: 256000000
+        multipartElementSize: 100000000
+
+    resources:
+      requests:
+        cpu: "500m"
+        memory: 2Gi
+      limits:
+        memory: 5Gi
+
+    javaOpts:
+      other: >
+        -XX:InitialRAMPercentage=40
+        -XX:MaxRAMPercentage=70
+        -Dartifactory.async.corePoolSize=40
+        -Dartifactory.async.poolMaxQueueSize=10000
+        -Dartifactory.http.client.max.total.connections=50
+        -Dartifactory.http.client.max.connections.per.route=50
+        -Dartifactory.access.client.max.connections=75
+        -Dartifactory.metadata.event.operator.threads=3
+        -XX:MaxMetaspaceSize=512m
+        -Djdk.nio.maxCachedBufferSize=262144
+        -XX:MaxDirectMemorySize=256m
+    tomcat:
+      connector:
+        maxThreads: 300
+        extraConfig: 'acceptCount="600" acceptorThreadCount="2" compression="off" connectionLinger="-1" connectionTimeout="120000" enableLookups="false"'
+    database:
+      maxOpenConnections: 50
+    extraEnvironmentVariables:
+      - name: MALLOC_ARENA_MAX
+        value: "2"
+
+  access:
+    tomcat:
+      connector:
+        maxThreads: 75
+    javaOpts:
+      other: >
+        -XX:InitialRAMPercentage=20
+        -XX:MaxRAMPercentage=60
+    database:
+      maxOpenConnections: 50
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1.5Gi
+      limits:
+        memory: 2Gi
+    extraEnvironmentVariables:
+      - name: MALLOC_ARENA_MAX
+        value: "2"
+
+  router:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 500Mi
+      limits:
+        memory: 1Gi
+
+  frontend:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 150Mi
+      limits:
+        memory: 250Mi
+
+  metadata:
+    database:
+      maxOpenConnections: 50
+    resources:
+      requests:
+        cpu: 100m
+        memory: 200Mi
+      limits:
+        memory: 1Gi
+
+  onemodel:
+    resources:
+      requests:
+        cpu: 175m
+        memory: 140Mi
+      limits:
+        memory: 1Gi
+
+  event:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 50Mi
+      limits:
+        memory: 250Mi
+
+  observability:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 50Mi
+      limits:
+        memory: 250Mi
+
+  jfconnect:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 50Mi
+      limits:
+        memory: 250Mi
+
+  jfconfig:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 600Mi
+      limits:
+        memory: 900Mi
+    extraEnvironmentVariables:
+      - name: MALLOC_ARENA_MAX
+        value: "2"
+
+  topology:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 600Mi
+      limits:
+        memory: 900Mi
+    extraEnvironmentVariables:
+      - name: MALLOC_ARENA_MAX
+        value: "2"
+
+
+  nginx:
+    enabled: false 
+    replicaCount: 2
+    tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "nginx"
+      effect: "NoSchedule"
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: node-pool
+              operator: In
+              values:
+                - nginx
+    disableProxyBuffering: true
+
+xray:
+  enabled: true
+  replicaCount: 2
+  tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "xray"
+    effect: "NoSchedule"
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: node-pool
+            operator: In
+            values:
+              - xray
+  unifiedUpgradeAllowed: true
+  postgresql:
+    enabled: false
+  database:
+    secrets:
+      user:
+        name: "xray-db-secret"
+        key: "db-user"
+      password:
+        name: "xray-db-secret"
+        key: "db-password"
+      url:
+        name: "xray-db-secret"
+        key: "db-url"
+
+  ## Azure Key Vault CSI Driver - mounts KV secrets and syncs to K8s secrets
+  ## SecretProviderClass 'jfrog-db-secrets' must be applied before helm install
+
+  analysis:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: 250Mi
+      limits:
+        memory: 10Gi
+  indexer:
+    resources:
+      requests:
+        cpu: "300m"
+        memory: 550Mi
+      limits:
+        memory: 8Gi
+  persist:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: 250Mi
+      limits:
+        memory: 8Gi
+  server:
+    resources:
+      requests:
+        cpu: "300m"
+        memory: 500Mi
+      limits:
+        memory: 6Gi
+  router:
+    resources:
+      requests:
+        cpu: "60m"
+        memory: 100Mi
+      limits:
+        memory: 1Gi
+  observability:
+    resources:
+      requests:
+        cpu: "10m"
+        memory: 25Mi
+      limits:
+        memory: 250Mi
+  panoramic:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: 250Mi
+      limits:
+        memory: 8Gi
+  sbom:
+    resources:
+      requests:
+        cpu: "100m"
+        memory: 250Mi
+      limits:
+        memory: 10Gi
+  policyenforcer:
+    resources:
+      requests:
+        memory: "250Mi"
+        cpu: "60m"
+      limits:
+        memory: "8Gi"
+  common:
+    persistence:
+      size: 200Gi

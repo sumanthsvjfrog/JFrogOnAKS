@@ -1,0 +1,240 @@
+# This Values.yaml is used to test with insecure tls of self signed certificate
+#  Special values for jfrog-platform chart.
+# nameOverride:
+# fullnameOverride:
+# If this is an upgrade over an existing platform chart(>= 10.0.0), explicitly pass 'gaUpgradeReady=true' to upgrade
+gaUpgradeReady: true
+# If you are upgrading from a chart version(< 10.18.x) that has postgresql.image.tag of 13.x, make sure to set the current postgresql.image.tag to the same tag and databaseUpgradeReady=true.
+# If you are upgrading from a chart version (>= 10.18.x), just set databaseUpgradeReady=true.
+databaseUpgradeReady: false
+preUpgradeHook:
+  enabled: false
+global:
+  jfrogUrl: "https://20.85.169.10.nip.io"
+  imageRegistry: "sumacr2.azurecr.io"
+  imagePullSecrets:
+    - jfrog-registry-secret2
+  joinKeySecretName: jfrog-platform-keys
+  masterKeySecretName: jfrog-platform-keys
+  versions:
+    artifactory: "7.146.7"
+    xray: "3.137.27"
+    nginx: "7.146.7"
+  security:
+    allowInsecureImages: true
+  database:
+    initDBCreation: false
+  xray:
+    rabbitmq:
+       replicaCount: 1
+       haQuorum:
+         enabled: true
+       migrateMessagesFromXrayDefaultVhost: true
+  customCertificates:
+    enabled: true
+    certificateSecretName: "artifactory-tls"
+
+postgresql:
+  enabled: false
+
+rabbitmq:
+  image:
+    tag: 4.1.1-debian-12-r1
+  replicaCount: 1
+  podManagementPolicy: Parallel
+  extraPlugins: "rabbitmq_shovel rabbitmq_shovel_management"
+  migration:
+    deleteStatefulSetToAllowFieldUpdate:
+      enabled: true
+    removeHaPolicyOnMigrationToHaQuorum:
+      enabled: true
+  tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "rabbitmq"
+    effect: "NoSchedule"
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-pool
+              operator: In
+              values:
+                - rabbitmq
+
+artifactory:
+  enabled: true
+  database:
+    type: postgresql
+    driver: org.postgresql.Driver
+    secrets:
+      user:
+        name: "artifactory-db-secret"
+        key: "db-user"
+      password:
+        name: "artifactory-db-secret"
+        key: "db-password"
+      url:
+        name: "artifactory-db-secret"
+        key: "db-url"
+
+  mc:
+    enabled: true
+
+  ## Azure Workload Identity: annotate the Artifactory ServiceAccount with your UAMI client ID.
+  serviceAccount:
+    create: false
+    name: "artifactory-sa"
+    automountServiceAccountToken: true
+    annotations:
+      azure.workload.identity/client-id: 84a1c4cb-3bfa-43c7-a3a7-426d0a173b36
+
+  artifactory:
+    labels:
+      azure.workload.identity/use: "true"
+    tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "artifactory"
+      effect: "NoSchedule"
+    replicaCount: 1
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: artifactory
+                release: jfrog-platform
+            topologyKey: kubernetes.io/hostname
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: node-pool
+              operator: In
+              values: ["artifactory"]
+
+    ## Azure Key Vault CSI Driver - mounts KV secrets and syncs to K8s secrets
+    ## SecretProviderClass 'jfrog-db-secrets' must be applied before helm install
+    customVolumes: |
+      - name: jfrog-kv-secrets
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: "jfrog-db-secrets"
+
+    customVolumeMounts: |
+      - name: jfrog-kv-secrets
+        mountPath: "/mnt/secrets-store"
+        readOnly: true
+
+    persistence:
+      enabled: true
+      ## Azure Blob Storage V2 direct (replaces AWS S3 s3-storage-v3-direct)
+      ## Ref: https://docs.jfrog.com/installation/docs/azure-blob-storage-v2-binary-provider
+      type: azure-blob-storage-v2-direct
+      size: 120Gi
+      maxCacheSize: 5000000000
+      azureBlob:
+        ## useInstanceCredentials: true = no accountKey, uses UAMI via Workload Identity
+        ## UAMI needs Storage Blob Data Contributor on the storage account. Artifactory 7.125.4+
+        ## Ref: https://docs.jfrog.com/installation/docs/azure-workload-identity
+        useInstanceCredentials: true
+        endpoint: "https://sumanthartifactory.blob.core.windows.net/"
+        containerName: artifactory-binstore
+        testConnection: false
+        multiPartLimit: 256000000
+        multipartElementSize: 100000000
+
+  ingress:
+    enabled: true
+    defaultBackend:
+      enabled: true
+    routerPath: /
+    artifactoryPath: /artifactory/
+    className: nginx
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    hosts:
+      - 20.85.169.10.nip.io
+    tls:
+      - secretName: artifactory-tls
+        hosts:
+          - 20.85.169.10.nip.io
+  nginx:
+    enabled: false
+    replicaCount: 1
+    tolerations:
+    - key: "dedicated"
+      operator: "Equal"
+      value: "nginx"
+      effect: "NoSchedule"
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: node-pool
+              operator: In
+              values:
+                - nginx
+    disableProxyBuffering: true
+
+xray:
+  enabled: true
+  router:
+    serviceRegistry:
+      insecure: true
+  replicaCount: 1
+  tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "xray"
+    effect: "NoSchedule"
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: node-pool
+            operator: In
+            values:
+              - xray
+  unifiedUpgradeAllowed: true
+  postgresql:
+    enabled: false
+  database:
+    secrets:
+      user:
+        name: "xray-db-secret"
+        key: "db-user"
+      password:
+        name: "xray-db-secret"
+        key: "db-password"
+      url:
+        name: "xray-db-secret"
+        key: "db-url"
+
+  ## Azure Key Vault CSI Driver - mounts KV secrets and syncs to K8s secrets
+  ## SecretProviderClass 'jfrog-db-secrets' must be applied before helm install
+  customVolumes: |
+    - name: jfrog-kv-secrets
+      csi:
+        driver: secrets-store.csi.k8s.io
+        readOnly: true
+        volumeAttributes:
+          secretProviderClass: "jfrog-db-secrets"
+
+  customVolumeMounts: |
+    - name: jfrog-kv-secrets
+      mountPath: "/mnt/secrets-store"
+      readOnly: true
+
+  common:
+    persistence:
+      size: 200Gi

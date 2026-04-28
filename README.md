@@ -32,8 +32,6 @@ This repository contains Helm values files and utility scripts for deploying the
 
 > **Critical — `xray.router.serviceRegistry.insecure: true`:** Must be set whenever Artifactory is exposed over a self-signed or untrusted TLS certificate. Without it, Xray's router rejects the TLS handshake during service registration and Xray will fail to connect to Artifactory entirely.
 
-> **Critical — ingress block placement:** In the external file, `ingress` is a child of the `artifactory` top-level key (`artifactory.ingress`). In the internal file it sits as a sibling of `artifactory.artifactory` at the same nesting level. This structural difference must be preserved exactly as the Helm chart resolves ingress config differently depending on placement.
-
 ---
 
 ## File Descriptions

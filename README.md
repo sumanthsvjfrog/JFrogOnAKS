@@ -21,7 +21,6 @@ This repository contains Helm values files and utility scripts for deploying the
 |---------|------------------------|-----------------------|
 | `artifactory.replicaCount` | `2` | `1` |
 | `xray.replicaCount` | `2` | `1` |
-| **Ingress block location** | `artifactory.ingress` (nested inside `artifactory`) | Top-level sibling of `artifactory.artifactory` |
 | **TLS certificate** | Valid cert — no insecure flags | Self-signed nip.io cert |
 | `xray.router.serviceRegistry.insecure` | Not set (secure) | `true` — required for Xray to trust self-signed cert |
 | `global.security.allowInsecureImages` | Not set | `true` |

@@ -16,9 +16,8 @@ global:
   joinKeySecretName: jfrog-join-keys-dev
   masterKeySecretName: jfrog-master-keys-dev
   versions:
-    artifactory: "7.146.7"
-    xray: "3.137.27"
-    nginx: "7.146.7"
+    artifactory: "7.146.8"
+    xray: "3.143.6"
   database:
     initDBCreation: false
   xray:
@@ -65,16 +64,18 @@ artifactory:
   database:
     type: postgresql
     driver: org.postgresql.Driver
+    user: "<DB_USER>"
+    url: "jdbc:postgresql://<DB_HOST>:5432/<DB_NAME>"
     secrets:
-      user:
-        name: "artifactory-db-secret"
-        key: "db-user"
+     # user:
+     #   name: "artifactory-db-secret"
+     #   key: "db-user"
       password:
         name: "artifactory-db-secret"
         key: "db-password"
-      url:
-        name: "artifactory-db-secret"
-        key: "db-url"
+     # url:
+     #   name: "artifactory-db-secret"
+     #   key: "db-url"
 
   mc:
     enabled: true
@@ -146,8 +147,8 @@ artifactory:
         ## UAMI needs Storage Blob Data Contributor on the storage account. Artifactory 7.125.4+
         ## Ref: https://docs.jfrog.com/installation/docs/azure-workload-identity
         useInstanceCredentials: true
-        endpoint: "https://changeit.blob.core.windows.net/"
-        containerName: artifactory-binstore
+        endpoint: "https://<changeit>.blob.core.windows.net/"
+        containerName: <artifactory-binstore>
         testConnection: false
         multiPartLimit: 256000000
         multipartElementSize: 100000000
@@ -323,16 +324,20 @@ xray:
   postgresql:
     enabled: false
   database:
+    type: "postgresql"
+    driver: "org.postgresql.Driver"
+    url: postgres://<Statestreetart-postgres.postgres.database.azure.com>:5432/<dbname>?sslmode=require"
+    user: "<DB_USER>"
     secrets:
-      user:
-        name: "xray-db-secret"
-        key: "db-user"
+     # user:
+     #   name: "xray-db-secret"
+     #   key: "db-user"
       password:
         name: "xray-db-secret"
         key: "db-password"
-      url:
-        name: "xray-db-secret"
-        key: "db-url"
+     # url:
+     #   name: "xray-db-secret"
+     #   key: "db-url"
 
   ## Azure Key Vault CSI Driver - mounts KV secrets and syncs to K8s secrets
   ## SecretProviderClass 'jfrog-db-secrets' must be applied before helm install

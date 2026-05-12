@@ -9,12 +9,12 @@ databaseUpgradeReady: false
 preUpgradeHook:
   enabled: true
 global:
-  imageRegistry: "acrregistry"
+  imageRegistry: "<acrregistry>"
   #imagePullSecrets:
    # - jfrog-registry-secret
-  jfrogUrl: "https://your.domain.com"
-  joinKeySecretName: jfrog-join-keys-dev
-  masterKeySecretName: jfrog-master-keys-dev
+  jfrogUrl: "https://<your.domain.com>"
+  joinKeySecretName: artifactory-master-key
+  masterKeySecretName: artifactory-join-key
   versions:
     artifactory: "7.146.8"
     xray: "3.143.6"
@@ -28,7 +28,7 @@ global:
        migrateMessagesFromXrayDefaultVhost: true
   customCertificates:
     enabled: true
-    certificateSecretName: "artifactory-tls"
+    certificateSecretName: artifactory-tls
 
 postgresql:
   enabled: false
@@ -86,7 +86,7 @@ artifactory:
     name: "artifactory-sa"
     automountServiceAccountToken: true
     annotations:
-      azure.workload.identity/client-id: 84a1c4cb-3bfa-43c7-a3a7-426d0a173b36
+      azure.workload.identity/client-id: <client-id>
   ingress:
     enabled: true
     defaultBackend:
@@ -100,11 +100,11 @@ artifactory:
       nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
       nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
     hosts:
-      - your.domain.com
+      - <your.domain.com>
     tls:
       - secretName: artifactory-tls
         hosts:
-          - your.domain.com
+          - <your.domain.com>
 
   artifactory:
     labels:
@@ -130,9 +130,6 @@ artifactory:
             - key: node-pool
               operator: In
               values: ["artifactory"]
-
-    ## Azure Key Vault CSI Driver - mounts KV secrets and syncs to K8s secrets
-    ## SecretProviderClass 'jfrog-db-secrets' must be applied before helm install
 
 
     persistence:
